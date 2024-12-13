@@ -9,13 +9,20 @@ const char* password = "12345678";
 const char* PARAM_INPUT_1 = "output";
 const char* PARAM_INPUT_2 = "state";
 
+// Декларирование глобальных переменных
 String wifiIP = "";
+String actionLog[10];
+int logIndex = 0;
+unsigned long timers[5] = {0, 0, 0, 0, 0};
 
+// Декларирование функций
 AsyncWebServer server(80);
 String outputState(int output);
 String setWifi(String ssid, String pass);
 void setAP(String ssid, String pass);
+void writeToLog(String pin, String state);
 
+// Веб-страницы, располагающиеся в памяти программ
 const char test_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="en">
@@ -61,10 +68,14 @@ const char index_html[] PROGMEM = R"rawliteral(
     <button id="connect" type="submit" value="Submit">Подключиться</button>
   </form>
   %BUTTONPLACEHOLDER%
+  <div id="log">
+   <h3>Журнал действий</h3>
+   %LOGSPLACEHOLDER%
+  </div>
 <script>function toggleCheckbox(element) {
   var xhr = new XMLHttpRequest();
-  if(element.checked){ xhr.open("GET", "/update?output="+element.id+"&state=1", true); }
-  else { xhr.open("GET", "/update?output="+element.id+"&state=0", true); }
+  if(element.checked){ xhr.open("GET", "/update?output="+element.id+"&state=1"+"&value="+element.value, true); }
+  else { xhr.open("GET", "/update?output="+element.id+"&state=0"+"&value="+element.value, true); }
   xhr.send();
 }
 </script>
@@ -77,18 +88,28 @@ String processor(const String& var){
   //Serial.println(var);
   if(var == "BUTTONPLACEHOLDER"){
     String buttons = "";
-    buttons += "<h4>Лампочка 1</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"21\" " + outputState(21) + "><span class=\"slider\"></span></label>";
-    buttons += "<h4>Лампочка 2</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"19\" " + outputState(19) + "><span class=\"slider\"></span></label>";
-    buttons += "<h4>Лампочка 3</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"18\" " + outputState(18) + "><span class=\"slider\"></span></label>";
-    buttons += "<h4>Лампочка 4</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"17\" " + outputState(17) + "><span class=\"slider\"></span></label>";
-    buttons += "<h4>Лампочка 5</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" id=\"16\" " + outputState(16) + "><span class=\"slider\"></span></label>";
+    buttons += "<h4>Лампочка 1</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" value = \"1\" id=\"21\" " + outputState(21) + "><span class=\"slider\"></span></label>";
+    buttons += "<h4>Лампочка 2</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" value = \"2\" id=\"19\" " + outputState(19) + "><span class=\"slider\"></span></label>";
+    buttons += "<h4>Лампочка 3</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" value = \"3\" id=\"18\" " + outputState(18) + "><span class=\"slider\"></span></label>";
+    buttons += "<h4>Лампочка 4</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" value = \"4\" id=\"17\" " + outputState(17) + "><span class=\"slider\"></span></label>";
+    buttons += "<h4>Лампочка 5</h4><label class=\"switch\"><input type=\"checkbox\" onchange=\"toggleCheckbox(this)\" value = \"5\" id=\"16\" " + outputState(16) + "><span class=\"slider\"></span></label>";
     return buttons;
   } else if (var == "IPADDRESS")
   {
     String text = "";
     text += "<h2>"+ wifiIP +"</h2>";
     return text;
+  } else if (var == "LOGSPLACEHOLDER")
+  {
+    String logHTML ="";
+    for (int i=0;i<10;i++){
+      if(actionLog[i] != ""){
+        logHTML += "<p><h5>" + actionLog[i] + "</h5></p>";
+      }
+    }
+    return logHTML;
   }
+  
   
   return String();
 }
@@ -103,6 +124,7 @@ String outputState(int output){
 }
 
 String setWifi(String ssid, String pass){
+  // Подключает к сети WiFi
   WiFi.begin(ssid, pass);
   while (WiFi.status() != WL_CONNECTED) {
     delay(1000);
@@ -114,30 +136,48 @@ String setWifi(String ssid, String pass){
 }
 
 void setAP(String ssid, String pass){
+  // Создает локальную точку доступа
   WiFi.softAP(ssid, pass);
   IPAddress IP = WiFi.softAPIP();
   Serial.println(IP);
+}
+
+void pinOutSetup(const int* pins, size_t size){
+  // Инициализация выходных пинов
+  for (size_t i = 0; i<size;i++){
+    pinMode(pins[i], OUTPUT);
+    digitalWrite(pins[i], LOW);
+  }
+}
+
+void writeToLog(String pin, String state){
+  if (logIndex < 10){
+    actionLog[logIndex] = (state == "1")?"Включился ":"Выключился "; 
+    actionLog[logIndex] += pin + " выход.";
+    logIndex ++;
+  }
+  else{
+    for(int i=0;i<logIndex;i++){
+      actionLog[i] = actionLog[i+1];
+    }
+    actionLog[logIndex] = (state == "1")?"Включился ":"Выключился "; 
+    actionLog[logIndex] += pin + " выход.";
+  }
 }
 
 void setup(){
   // Serial port for debugging purposes
   Serial.begin(115200);
 
-  pinMode(21, OUTPUT);
-  digitalWrite(21, LOW);
-  pinMode(19, OUTPUT);
-  digitalWrite(19, LOW);
-  pinMode(18, OUTPUT);
-  digitalWrite(18, LOW);
-  pinMode(17, OUTPUT);
-  digitalWrite(17, LOW);
-  pinMode(16, OUTPUT);
-  digitalWrite(16, LOW);
+  const int pins[] = {21, 19, 18, 17, 16};
+  pinOutSetup(pins, sizeof(pins) / sizeof(pins[0]));
   
-  // Connect to Wi-Fi
+  // 
   WiFi.mode(WIFI_MODE_APSTA);
   setAP(ssidAP, password);
-  // setWifi("ASUS_58_2G", "123qwe123");
+
+  // Используется для отладки
+  setWifi("ASUS_58_2G", "123qwe123");
 
   // Route for root / web page
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
@@ -146,13 +186,16 @@ void setup(){
 
   // Send a GET request to <ESP_IP>/update?output=<inputMessage1>&state=<inputMessage2>
   server.on("/update", HTTP_GET, [] (AsyncWebServerRequest *request) {
-    String inputMessage1;
-    String inputMessage2;
+    String inputMessage1; // Номер пина
+    String inputMessage2; // Состояние
+    String inputMessage3; // Порядковый номер выхода
     // GET input1 value on <ESP_IP>/update?output=<inputMessage1>&state=<inputMessage2>
-    if (request->hasParam(PARAM_INPUT_1) && request->hasParam(PARAM_INPUT_2)) {
+    if (request->hasParam(PARAM_INPUT_1) && request->hasParam(PARAM_INPUT_2) && request->hasParam("value")) {
       inputMessage1 = request->getParam(PARAM_INPUT_1)->value();
       inputMessage2 = request->getParam(PARAM_INPUT_2)->value();
+      inputMessage3 = request->getParam("value")->value();
       digitalWrite(inputMessage1.toInt(), inputMessage2.toInt());
+      writeToLog(inputMessage3, inputMessage2);
     }
     else {
       inputMessage1 = "No message sent";
@@ -163,6 +206,18 @@ void setup(){
     Serial.print(" - Set to: ");
     Serial.println(inputMessage2);
     request->send(200, "text/plain", "OK");
+  });
+
+  server.on("/setTimer", HTTP_GET, [](AsyncWebServerRequest *request){
+    if (request->hasParam("value") && request->hasParam("time")){
+      int pin = request->getParam("value")->value().toInt();
+      unsigned long time = request->getParam("time")->value().toInt()*1000;
+      timers[pin] = millis() + time;
+      Serial.println(pin);
+      Serial.println(time);
+    }
+    request->send(200, "text/plain", "Timer set");
+    
   });
 
   server.on("/wifi", HTTP_POST, [](AsyncWebServerRequest *request){
