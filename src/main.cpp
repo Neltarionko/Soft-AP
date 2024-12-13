@@ -13,6 +13,7 @@ const char* PARAM_INPUT_2 = "state";
 String wifiIP = "";
 String actionLog[10];
 int logIndex = 0;
+const int pins[] = {21, 19, 18, 17, 16};
 unsigned long timers[5] = {0, 0, 0, 0, 0};
 
 // Декларирование функций
@@ -151,17 +152,17 @@ void pinOutSetup(const int* pins, size_t size){
 }
 
 void writeToLog(String pin, String state){
+  unsigned long currentTime = millis() / 1000;
+  String time = String(currentTime / 3600) + ":" + String((currentTime / 60) % 60) + ":" + String(currentTime % 60);
   if (logIndex < 10){
-    actionLog[logIndex] = (state == "1")?"Включился ":"Выключился "; 
-    actionLog[logIndex] += pin + " выход.";
+    actionLog[logIndex] =time + " - " + ((state == "1")?"Включился ":"Выключился ")+pin + " выход."; 
     logIndex ++;
   }
   else{
     for(int i=0;i<logIndex;i++){
       actionLog[i] = actionLog[i+1];
     }
-    actionLog[logIndex] = (state == "1")?"Включился ":"Выключился "; 
-    actionLog[logIndex] += pin + " выход.";
+    actionLog[logIndex] =time + " - " + ((state == "1")?"Включился ":"Выключился ")+pin + " выход."; 
   }
 }
 
@@ -169,7 +170,7 @@ void setup(){
   // Serial port for debugging purposes
   Serial.begin(115200);
 
-  const int pins[] = {21, 19, 18, 17, 16};
+  
   pinOutSetup(pins, sizeof(pins) / sizeof(pins[0]));
   
   // 
@@ -213,6 +214,7 @@ void setup(){
       int pin = request->getParam("value")->value().toInt();
       unsigned long time = request->getParam("time")->value().toInt()*1000;
       timers[pin] = millis() + time;
+      Serial.print("Time set for: ");
       Serial.println(pin);
       Serial.println(time);
     }
@@ -248,5 +250,12 @@ void setup(){
 }
 
 void loop() {
-
+  for (int i = 0; i < sizeof(pins) / sizeof(pins[0]); i++) {
+    if (timers[i] != 0 && millis() > timers[i]) {
+        digitalWrite(pins[i], LOW);
+        timers[i] = 0;
+        Serial.print("Timer expired for pin: ");
+        Serial.println(pins[i]);
+    }
+  }
 }
