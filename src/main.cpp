@@ -1,7 +1,7 @@
 #include <Arduino.h>
 
-#define AP_SSID "ASUS_58_2G"
-#define AP_PASS "123qwe123"
+#define AP_SSID "TRANS_MSC"
+#define AP_PASS "19216800"
 
 #define GH_INCLUDE_PORTAL 
 #include <GyverHub.h>
@@ -18,22 +18,25 @@ const char _ui[] PROGMEM = R"json({"type":"row","width":1,"data":[{"id":"inp","t
 const char* fetch_bytes = "fetch bytes\nLorem ipsum dolor sit amet, consectetur adipiscing elit. Morbi dignissim tellus ligula. Vivamus id lacus ac tortor commodo aliquam. Mauris eget faucibus nunc. Vestibulum tempus eu lorem a dapibus. Nullam ac dapibus ex. Aenean faucibus dapibus porttitor. Sed vel magna id tellus mattis semper. Fusce a finibus ligula. In est turpis, viverra eget libero ut, pretium pellentesque velit. Praesent ultrices elit quis facilisis mattis. Donec eu iaculis est. Sed tempus feugiat ligula non ultricies. Cras a auctor nibh, sed sodales sapien.\n\nSed cursus quam vel egestas rhoncus. Curabitur dignissim lorem sed metus sollicitudin, non faucibus erat interdum. Nunc vitae lobortis dui, mattis dignissim orci. Orci varius natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Duis vel venenatis purus. Nunc luctus leo tincidunt felis efficitur ullamcorper. Aliquam semper rhoncus odio sed porta. Quisque blandit, dui vel imperdiet ultricies, dolor arcu posuere turpis, et gravida ante libero ut ex. Vestibulum sed scelerisque nibh, nec mollis urna. Suspendisse tortor sapien, congue at aliquam vitae, venenatis placerat enim. Interdum et malesuada fames ac ante ipsum primis in faucibus. Nam posuere metus a est commodo finibus. Donec luctus arcu purus, sit amet sodales dolor facilisis id. Nullam consectetur sapien vitae nisi gravida, sed finibus dui hendrerit. In id pretium odio, imperdiet lacinia massa. Morbi quis condimentum ligula.";
 const char fetch_pgm[] PROGMEM = "fetch pgm\nLorem ipsum dolor sit amet, consectetur adipiscing elit. Morbi dignissim tellus ligula. Vivamus id lacus ac tortor commodo aliquam. Mauris eget faucibus nunc. Vestibulum tempus eu lorem a dapibus. Nullam ac dapibus ex. Aenean faucibus dapibus porttitor. Sed vel magna id tellus mattis semper. Fusce a finibus ligula. In est turpis, viverra eget libero ut, pretium pellentesque velit. Praesent ultrices elit quis facilisis mattis. Donec eu iaculis est. Sed tempus feugiat ligula non ultricies. Cras a auctor nibh, sed sodales sapien.\n\nSed cursus quam vel egestas rhoncus. Curabitur dignissim lorem sed metus sollicitudin, non faucibus erat interdum. Nunc vitae lobortis dui, mattis dignissim orci. Orci varius natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Duis vel venenatis purus. Nunc luctus leo tincidunt felis efficitur ullamcorper. Aliquam semper rhoncus odio sed porta. Quisque blandit, dui vel imperdiet ultricies, dolor arcu posuere turpis, et gravida ante libero ut ex. Vestibulum sed scelerisque nibh, nec mollis urna. Suspendisse tortor sapien, congue at aliquam vitae, venenatis placerat enim. Interdum et malesuada fames ac ante ipsum primis in faucibus. Nam posuere metus a est commodo finibus. Donec luctus arcu purus, sit amet sodales dolor facilisis id. Nullam consectetur sapien vitae nisi gravida, sed finibus dui hendrerit. In id pretium odio, imperdiet lacinia massa. Morbi quis condimentum ligula.";
 bool dsbl, nolbl, notab;
-String token;
+String token, ssid, pass;
+bool wifi = false;
+
 
 // Структура релейных выходов
 struct Relay {
     bool state;
     int output;
     int led;
+    String name;
 };
 
-Relay relay[4] = {
-    {false, 25, 21},
-    {false, 26, 19},
-    {false, 27, 18},
-    {false, 4, 17}
-};
 const int relay_count = 4;
+Relay relay[relay_count] = {
+    {false, 25, 21, "1"},
+    {false, 26, 19, "2"},
+    {false, 27, 18, "3"},
+    {false, 4, 17, "4"}
+};
 
 // Логгер
 gh::Log hlog;
@@ -49,7 +52,7 @@ void pinSetup(){
 }
 
 // Функция подключения к сети WiFi
-void WiFiSetup(char* ssid, char* pass){
+void WiFiSetup(String ssid, String pass){
   WiFi.begin(ssid, pass);
   unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
@@ -61,6 +64,7 @@ void WiFiSetup(char* ssid, char* pass){
     return;
   } 
   Serial.println("WiFi connected");
+  wifi = true;
   Serial.println(WiFi.localIP());
 }
 
@@ -90,12 +94,15 @@ void update(fb::Update& u) {
     if (message == "/start") {
         bot.sendMessage(fb::Message("Привет! Я бот для управления умным домом. Введите /menu для вызова меню управления", chat_id));
     } else if (message == "/menu"){ 
-        fb::Message msg("Выберите номер реле, которое надо переключить", chat_id);
+        fb::Message msg("Выберите реле, которое надо переключить", chat_id);
         
         fb::Menu menu;
-        menu.text = "1 ; 2 ; 3 ; 4 ";
-        menu.resize = 4;
-        menu.placeholder = "Номер выхода";
+        String temp;
+        for(int i = 0; i < relay_count; i++){
+            temp += relay[i].name + " ;";
+        }
+        menu.resize = relay_count;
+        menu.placeholder = "Переключаемый выход";
         msg.setMenu(menu);
 
         bot.sendMessage(msg);
@@ -115,10 +122,13 @@ void build_common(gh::Builder& b) {
     b.Title("Реле");
     {
         gh::Row r(b);
-        b.Switch_("relay1", &relay[0].state).label("1");
-        b.Switch_("relay2", &relay[1].state).label("2");
-        b.Switch_("relay3", &relay[2].state).label("3");
-        b.Switch_("relay4", &relay[3].state).label("4");
+        for (int i=0; i<relay_count; i++){
+            b.Switch_("relay"+String(i+1), &relay[i].state).label(String(i+1));
+        }
+        // b.Switch_("relay1", &relay[0].state).label("1");
+        // b.Switch_("relay2", &relay[1].state).label("2");
+        // b.Switch_("relay3", &relay[2].state).label("3");
+        // b.Switch_("relay4", &relay[3].state).label("4");
     }
     update_outputs();
     if (b.changed()) b.refresh();
@@ -142,10 +152,28 @@ void build_telegram(gh::Builder& b){
     }
 }
 
+// Функция построения страницы сетевых настроек
+void build_network(gh::Builder& b){
+    b.Title("Подключение к WiFi");
+    {
+        gh::Row r(b);
+        b.Input(&ssid).size(3).label("SSID");
+        b.Input(&pass).size(3).label("Password");
+        if (b.Button().label("Сохранить").size(1).click()) {
+            // Сохранение настроек
+            data["ssid"] = ssid;
+            data["pass"] = pass;
+            data.update();
+            WiFiSetup(data["ssid"], data["pass"]);
+        }
+    }
+
+}
+
 // Функция построения веб-интерфейса
 void build(gh::Builder& b) {
     if (b.build.isSet()) hlog.println(b.build.name);
-    b.Menu(F("Реле;Telegram"));
+    b.Menu(F("Реле;Telegram;Сеть"));
 
     switch (hub.menu) {
         case 0:
@@ -154,7 +182,15 @@ void build(gh::Builder& b) {
         case 1:
             build_telegram(b);
             break;
+        case 2:
+            build_network(b);
+            break;
     }
+}
+
+void test(){
+    WiFiSetup(AP_SSID, AP_PASS);
+    wifi = true;
 }
 
 void setup() {
@@ -164,13 +200,15 @@ void setup() {
     GH_FS.begin();
 
     pinSetup();
-    WiFiSetup(AP_SSID, AP_PASS); // Для тестов
+    test(); // Для тестов
+
+    if (not wifi and data.has("ssid") and data.has("pass")) WiFiSetup(data["ssid"], data["pass"]);
 
     hub.onBuild(build); //Подключение функции построения интерфейса
 
     // Попытка настроить MQTT, пока работает только на чтение
-    hub.mqtt.config(IPAddress(192, 168, 1, 102), 1883, "emelya", "emelya");
-    hub.sendGetAuto(true);
+    // hub.mqtt.config(IPAddress(192, 168, 1, 102), 1883, "emelya", "emelya");
+    // hub.sendGetAuto(true);
 
     // Обработчик консольных команд
     hub.onCLI([](String str) {
@@ -244,6 +282,13 @@ void setup() {
     if (data.has("token")) {
         Text raw_token = data.get("token");
         bot.setToken(raw_token);
+    }
+
+    for (int i=0; i<relay_count; i++){
+        if (data.has("relay" + String(i + 1))){
+            relay[i].state = data.get("relay" + String(i + 1)).toInt();
+            relay[i].name = data.get("relay_name" + String(i + 1));
+        }
     }
 }
 
