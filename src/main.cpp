@@ -1,7 +1,9 @@
 #include <Arduino.h>
 
-#define AP_SSID "TRANS_MSC"
-#define AP_PASS "19216800"
+#define AP_SSID "ASUS_58_2G"
+#define AP_PASS "123qwe123"
+
+#define UNIQUE_ID "123"
 
 #define GH_INCLUDE_PORTAL 
 #include <GyverHub.h>
@@ -28,14 +30,17 @@ struct Relay {
     int output;
     int led;
     String name;
+    unsigned int time;
+    bool timer_on;
+    gh::Timer timer;
 };
 
 const int relay_count = 4;
 Relay relay[relay_count] = {
-    {false, 25, 21, "1"},
-    {false, 26, 19, "2"},
-    {false, 27, 18, "3"},
-    {false, 4, 17, "4"}
+    {false, 25, 21, "0", 0, false},
+    {false, 26, 19, "1", 0, false},
+    {false, 27, 18, "2", 0, false},
+    {false, 4, 17, "3", 0, false}
 };
 
 // Логгер
@@ -73,10 +78,23 @@ void update_outputs(){
     for (int i=0; i<relay_count; i++){
         digitalWrite(relay[i].output, relay[i].state?HIGH:LOW);
         digitalWrite(relay[i].led, relay[i].state?HIGH:LOW);
+        data["relay" + String(i)] = relay[i].state;
         Serial.print("Relay ");
         Serial.print(i);
         Serial.print(" state: ");
         Serial.println(relay[i].state);
+    }
+}
+
+void timer(){
+    Serial.println("Timer");
+    for (int i=0; i<relay_count; i++){
+        if (relay[i].timer_on){
+            relay[i].state = !relay[i].state;
+            relay[i].timer_on = false;
+            update_outputs();
+            relay[i].timer.stop();
+        }
     }
 }
 
@@ -92,27 +110,30 @@ void update(fb::Update& u) {
     Text message = u.message().text();
 
     if (message == "/start") {
-        bot.sendMessage(fb::Message("Привет! Я бот для управления умным домом. Введите /menu для вызова меню управления", chat_id));
-    } else if (message == "/menu"){ 
-        fb::Message msg("Выберите реле, которое надо переключить", chat_id);
+        bot.sendMessage(fb::Message("Привет! Я бот для управления умным реле. Для начала работы отправьте ID вашего реле.", chat_id));
+    } else { 
+        if (message == "/menu") { 
+            fb::Message msg("Выберите реле, которое надо переключить", chat_id);
         
-        fb::Menu menu;
-        String temp;
-        for(int i = 0; i < relay_count; i++){
-            temp += relay[i].name + " ;";
-        }
-        menu.resize = relay_count;
-        menu.placeholder = "Переключаемый выход";
-        msg.setMenu(menu);
+            fb::Menu menu;
+            String temp;
+            for (int i = 0; i < relay_count; i++) {
+                temp += relay[i].name + " ;";
+            }
+            Serial.println(temp);
+            menu.resize = relay_count;
+            menu.placeholder = "Переключаемый выход";
+            msg.setMenu(menu);
 
-        bot.sendMessage(msg);
-    } else {
-        int relay_index = message.toInt() - 1;
-        if (relay_index >= 0 && relay_index < 5){
-            relay[relay_index].state = !relay[relay_index].state;
-            fb::Message msg("Реле " + String(relay_index + 1) + " переключено.", chat_id);
             bot.sendMessage(msg);
-            update_outputs();
+        } else {
+            int relay_index = message.toInt() - 1;
+            if (relay_index >= 0 && relay_index < 5) {
+                relay[relay_index].state = !relay[relay_index].state;
+                fb::Message msg("Реле " + String(relay_index + 1) + " переключено.", chat_id);
+                bot.sendMessage(msg);
+                update_outputs();
+            }
         }
     }
 }
@@ -120,15 +141,41 @@ void update(fb::Update& u) {
 // Функция построения страницы с кнопками реле
 void build_common(gh::Builder& b) {
     b.Title("Реле");
-    {
-        gh::Row r(b);
-        for (int i=0; i<relay_count; i++){
-            b.Switch_("relay"+String(i+1), &relay[i].state).label(String(i+1));
+    for (int i=0; i<relay_count;i++){
+        {
+            gh::Row r(b);
+            b.Title(relay[i].name);
         }
-        // b.Switch_("relay1", &relay[0].state).label("1");
-        // b.Switch_("relay2", &relay[1].state).label("2");
-        // b.Switch_("relay3", &relay[2].state).label("3");
-        // b.Switch_("relay4", &relay[3].state).label("4");
+        {
+            gh::Row r(b);
+            gh::Color red;
+            gh::Color green;
+            red.setRGB(255, 0, 0);
+            green.setRGB(0, 255, 0);            
+            b.Label(relay[i].state?"Включено":"Выключено").label("Состояние").color(relay[i].state?green:red);
+            b.Switch_("relay"+ String(i) + "_on", &relay[i].state).label("Переключить");
+        }
+        {
+            gh::Row r(b);
+            b.Input(&relay[i].name).size(2).label("Имя");
+            if (b.Button().label("Сохранить").size(1).click()) {
+                data["relay" + String(i)] = relay[i].state;
+                data["relay_name" + String(i)] = relay[i].name;
+                data.update();
+                Serial.println("Relay " + String(i) + " saved");
+                Serial.println(relay[i].name);
+            }
+        }
+        {
+            gh::Row r(b);
+            b.Input_("timer"+String(i), &relay[i].time).size(2).label("Таймер");
+            if (b.Button().label("Вкл").size(1).click()) {
+                relay[i].timer_on = true;
+                relay[i].timer.setTime(0, relay[i].time);
+                relay[i].timer.startInterval();
+                Serial.println("Timer on");
+            }
+        }
     }
     update_outputs();
     if (b.changed()) b.refresh();
@@ -251,6 +298,10 @@ void setup() {
         return 1;
     });
 
+    for (int i=0; i<relay_count; i++){
+        relay[i].timer.attach(timer);
+    }
+
 #ifdef GH_ESP_BUILD
     // Действия при перезагрузке
     hub.onReboot([](gh::Reboot r) {
@@ -284,10 +335,10 @@ void setup() {
         bot.setToken(raw_token);
     }
 
-    for (int i=0; i<relay_count; i++){
-        if (data.has("relay" + String(i + 1))){
-            relay[i].state = data.get("relay" + String(i + 1)).toInt();
-            relay[i].name = data.get("relay_name" + String(i + 1));
+    if (data.has("relay0")){
+        for (int i=0; i<relay_count; i++){
+            relay[i].state = data.get("relay" + String(i)).toInt();
+            relay[i].name = data.get("relay_name" + String(i));
         }
     }
 }
@@ -296,6 +347,9 @@ void loop() {
     data.tick();
     hub.tick();
     bot.tick();
+    for (int i=0; i<relay_count; i++){
+        if (relay[i].timer.state()) relay[i].timer.tick();
+    }
 }
 
 /* TODO:
